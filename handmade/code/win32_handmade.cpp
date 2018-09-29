@@ -280,6 +280,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
             Win32_InitDSound(Window, samplesPerSecond, secondaryBufferSize);
             bool32 soundIsPlaying = false;
 
+            bool32 soundIsPlaying = false;
             running = true;
             i32 xOffset = 0;
             i32 yOffset = 0;
