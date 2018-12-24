@@ -15,3 +15,5 @@ typedef uint64_t u64;
 typedef int64_t i64;
 
 typedef i32 bool32;
+
+const float PI32 = 3.1415927410125732421875;
