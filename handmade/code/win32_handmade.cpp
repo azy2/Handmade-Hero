@@ -4,6 +4,8 @@
 #include <dsound.h>
 // TODO: Implement sine ourselves.
 #include <math.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <xinput.h>
 
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
@@ -93,6 +95,28 @@ local void Win32_InitDSound(HWND Window, i32 samplesPerSecond, i32 bufferSize) {
     } else {
         // TODO: Diagnostic
     }
+}
+
+void odprintf(const char *format, ...) {
+    char buf[4096], *p = buf;
+    va_list args;
+    int n;
+
+    va_start(args, format);
+    n = _vsnprintf(p, sizeof(buf) - 3, format, args); // buf - 3 is room for CR/LF/NULL
+    va_end(args);
+
+    p += (n < 0) ? sizeof(buf - 3) : n;
+
+    while (p > buf && isspace(p[-1])) {
+        *--p = '\0';
+    }
+
+    *p++ = '\r';
+    *p++ = '\n';
+    *p++ = '\0';
+
+    OutputDebugString(buf);
 }
 
 struct Win32_OffscreenBuffer {
@@ -330,6 +354,15 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
             i32 xOffset = 0;
             i32 yOffset = 0;
 
+            i64 lastCycleCount = __rdtsc();
+
+            LARGE_INTEGER liperfFrequency;
+            QueryPerformanceFrequency(&liperfFrequency);
+            i64 perfFrequency = liperfFrequency.QuadPart;
+
+            LARGE_INTEGER lastCounter;
+            QueryPerformanceCounter(&lastCounter);
+
             while (running) {
                 MSG Msg;
                 while (PeekMessage(&Msg, 0, 0, 0, PM_REMOVE)) {
@@ -341,8 +374,8 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
                 }
 
                 // TODO: Should we poll this more frequently
-                // TODO: XInputGetState stalls for unconnected gamepads. Only poll pads we know are connected. Use HID
-                // interrupts to keep track of pads connected.
+                // TODO: XInputGetState stalls for unconnected gamepads. Only poll pads we know are connected. Use
+                // HID interrupts to keep track of pads connected.
                 for (DWORD ControllerIndex = 0; ControllerIndex < XUSER_MAX_COUNT; ++ControllerIndex) {
                     XINPUT_STATE ControllerState;
                     if (XInputGetState(ControllerIndex, &ControllerState) == ERROR_SUCCESS) {
@@ -406,6 +439,21 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
 
                 Win32_WindowDimension win_dimension = Win32_GetWindowDimension(Window);
                 Win32_DisplayBufferInWindow(DeviceContext, win_dimension.width, win_dimension.height, globalBackBuffer);
+
+                i64 endCycleCount = __rdtsc();
+
+                LARGE_INTEGER endCounter;
+                QueryPerformanceCounter(&endCounter);
+                i64 counterElapsed = endCounter.QuadPart - lastCounter.QuadPart;
+
+                float msPerFrame = ((1000.0f * counterElapsed) / perfFrequency);
+                float fps = ((float)perfFrequency / counterElapsed);
+                float megaCyclesPerFrame = ((endCycleCount - lastCycleCount) / (1000.0f * 1000.0f));
+
+                odprintf("%.02fms/f | %.02ff/s | %.02fMc/f", msPerFrame, fps, megaCyclesPerFrame);
+
+                lastCounter = endCounter;
+                lastCycleCount = endCycleCount;
             }
         } else {
             // TODO: Logging
