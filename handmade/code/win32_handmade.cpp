@@ -271,13 +271,14 @@ LRESULT CALLBACK Win32_MainWindowCallback(HWND Window, UINT Msg, WPARAM WParam, 
 }
 
 struct Win32_SoundOutput {
-    i32 samplesPerSecond = 48000;
-    i32 Hz = 261;
-    i16 toneVolume = 1000;
-    u32 runningSampleIndex = 0;
-    i32 wavePeriod = samplesPerSecond / Hz;
-    i32 bytesPerSample = sizeof(i16) * 2;
-    i32 secondaryBufferSize = samplesPerSecond * bytesPerSample;
+    i32 samplesPerSecond;
+    i32 Hz;
+    i16 toneVolume;
+    u32 runningSampleIndex;
+    i32 wavePeriod;
+    i32 bytesPerSample;
+    i32 secondaryBufferSize;
+    i32 latencySampleCount;
 };
 
 void Win32_FillSoundBuffer(Win32_SoundOutput &soundOutput, DWORD byteToLock, DWORD bytesToWrite) {
@@ -345,6 +346,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
             soundOutput.wavePeriod = soundOutput.samplesPerSecond / soundOutput.Hz;
             soundOutput.bytesPerSample = sizeof(i16) * 2;
             soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond * soundOutput.bytesPerSample;
+            soundOutput.latencySampleCount = soundOutput.samplesPerSecond / 15;
 
             Win32_InitDSound(Window, soundOutput.samplesPerSecond, soundOutput.secondaryBufferSize);
             Win32_FillSoundBuffer(soundOutput, 0, soundOutput.secondaryBufferSize);
@@ -421,17 +423,17 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
                 if (SUCCEEDED(globalSecondaryBuffer->GetCurrentPosition(&playCursor, &writeCursor))) {
                     DWORD byteToLock =
                         (soundOutput.runningSampleIndex * soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
-                    DWORD bytesToWrite = 0;
+                    DWORD targetCursor = ((playCursor + (soundOutput.latencySampleCount * soundOutput.bytesPerSample)) %
+                                          soundOutput.secondaryBufferSize);
 
+                    DWORD bytesToWrite = 0;
                     // TODO: Change this to using a lower latency offset from the playcursor
                     // when we actually start having sound effects.
-                    if (byteToLock == playCursor) {
-                        bytesToWrite = 0;
-                    } else if (byteToLock > playCursor) {
-                        bytesToWrite = (soundOutput.secondaryBufferSize - byteToLock);
-                        bytesToWrite += playCursor;
+                    if (byteToLock > targetCursor) {
+                        bytesToWrite = soundOutput.secondaryBufferSize - byteToLock;
+                        bytesToWrite += targetCursor;
                     } else {
-                        bytesToWrite = playCursor - byteToLock;
+                        bytesToWrite = targetCursor - byteToLock;
                     }
 
                     Win32_FillSoundBuffer(soundOutput, byteToLock, bytesToWrite);
