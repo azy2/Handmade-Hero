@@ -108,7 +108,7 @@ void odprintf(const char *format, ...) {
     int n;
 
     va_start(args, format);
-    n = _vsnprintf(p, sizeof(buf) - 3, format, args); // buf - 3 is room for CR/LF/NULL
+    n = _vsnprintf_s(p, sizeof(buf) - 3, sizeof(buf) - 3, format, args); // buf - 3 is room for CR/LF/NULL
     va_end(args);
 
     p += (n < 0) ? sizeof(buf - 3) : n;
@@ -137,19 +137,6 @@ local Win32_WindowDimension Win32_GetWindowDimension(const HWND Window) {
     result.height = ClientRect.bottom - ClientRect.top;
 
     return result;
-}
-
-local void RenderWeirdGradient(Win32_OffscreenBuffer &buffer, const i32 blueOffset, const i32 greenOffset) {
-    u8 *row = (u8 *)buffer.memory;
-    for (i32 y = 0; y < buffer.height; ++y) {
-        u32 *pixel = (u32 *)row;
-        for (i32 x = 0; x < buffer.width; ++x) {
-            u8 blue = (u8)(x + blueOffset);
-            u8 green = (u8)(y + greenOffset);
-            *pixel++ = blue | (green << 8);
-        }
-        row += buffer.pitch;
-    }
 }
 
 local void Win32_ResizeDIBSection(Win32_OffscreenBuffer &buffer, const i32 width, const i32 height) {
@@ -183,10 +170,10 @@ local void Win32_DisplayBufferInWindow(const Win32_OffscreenBuffer *buffer, cons
                   &buffer->info, DIB_RGB_COLORS, SRCCOPY);
 }
 
-LRESULT CALLBACK Win32_MainWindowCallback(HWND Window, UINT Msg, WPARAM WParam, LPARAM LParam) {
+LRESULT CALLBACK Win32_MainWindowCallback(HWND Window, UINT msg, WPARAM WParam, LPARAM LParam) {
     LRESULT Result = 0;
 
-    switch (Msg) {
+    switch (msg) {
     case WM_DESTROY: {
         // TODO: Handle this with a message to the user?
         running = false;
@@ -222,41 +209,10 @@ LRESULT CALLBACK Win32_MainWindowCallback(HWND Window, UINT Msg, WPARAM WParam, 
     case WM_SYSKEYUP:
     case WM_KEYDOWN:
     case WM_KEYUP: {
-        WPARAM VKCode = WParam;
-        bool wasDown = ((LParam & (1 << 30)) != 0);
-        bool isDown = ((LParam & (1 << 31)) == 0);
-
-        bool32 altDown = LParam & (1 << 29);
-
-        if (wasDown != isDown) {
-            if (VKCode == VK_OEM_COMMA) {
-
-            } else if (VKCode == 'A') {
-
-            } else if (VKCode == 'O') {
-
-            } else if (VKCode == 'E') {
-            } else if (VKCode == VK_OEM_7) { // '/"
-            } else if (VKCode == VK_OEM_PERIOD) {
-
-            } else if (VKCode == VK_UP) {
-
-            } else if (VKCode == VK_LEFT) {
-
-            } else if (VKCode == VK_DOWN) {
-
-            } else if (VKCode == VK_RIGHT) {
-
-            } else if (VKCode == VK_ESCAPE) {
-
-            } else if (VKCode == VK_SPACE) {
-            } else if (VKCode == VK_F4 && altDown) {
-                running = false;
-            }
-        }
+        Assert(!"Keyboard event through non-standard channel");
     } break;
 
-    default: { Result = DefWindowProc(Window, Msg, WParam, LParam); } break;
+    default: { Result = DefWindowProc(Window, msg, WParam, LParam); } break;
     }
 
     return Result;
@@ -319,7 +275,66 @@ void Win32_FillSoundBuffer(Win32_SoundOutput *soundOutput, DWORD byteToLock, DWO
 local void Win32_processXInputDigitalButton(DWORD XInputButtonState, GameButtonState *oldState, DWORD buttonBit,
                                             GameButtonState *newState) {
     newState->endedDown = ((XInputButtonState & buttonBit) == buttonBit);
-    newState->halfTransitionCount = (oldState->endedDown != newState->endedDown) ? 1 : 0;
+    newState->halfTransitionCount += (oldState->endedDown != newState->endedDown) ? 1 : 0;
+}
+
+local void Win32_processKeyboardMessage(GameButtonState *newState, bool isDown) {
+    newState->endedDown = isDown;
+    ++newState->halfTransitionCount;
+}
+
+void Win32_processPendingMessages(GameControllerInput *keyboardController) {
+    MSG msg;
+    while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
+        switch (msg.message) {
+        case WM_QUIT: {
+            running = false;
+        } break;
+        case WM_SYSKEYDOWN:
+        case WM_SYSKEYUP:
+        case WM_KEYDOWN:
+        case WM_KEYUP: {
+            WPARAM VKCode = msg.wParam;
+            bool wasDown = ((msg.lParam & (1 << 30)) != 0);
+            bool isDown = ((msg.lParam & (1 << 31)) == 0);
+
+            bool32 altDown = msg.lParam & (1 << 29);
+
+            if (wasDown != isDown) {
+                if (VKCode == VK_OEM_COMMA) {
+
+                } else if (VKCode == 'A') {
+
+                } else if (VKCode == 'O') {
+
+                } else if (VKCode == 'E') {
+                } else if (VKCode == VK_OEM_7) { // '/"
+                    Win32_processKeyboardMessage(&keyboardController->leftShoulder, isDown);
+                } else if (VKCode == VK_OEM_PERIOD) {
+                    Win32_processKeyboardMessage(&keyboardController->rightShoulder, isDown);
+                } else if (VKCode == VK_UP) {
+                    Win32_processKeyboardMessage(&keyboardController->up, isDown);
+                } else if (VKCode == VK_LEFT) {
+                    Win32_processKeyboardMessage(&keyboardController->left, isDown);
+                } else if (VKCode == VK_DOWN) {
+                    Win32_processKeyboardMessage(&keyboardController->down, isDown);
+                } else if (VKCode == VK_RIGHT) {
+                    Win32_processKeyboardMessage(&keyboardController->right, isDown);
+                } else if (VKCode == VK_ESCAPE) {
+                    running = false;
+                } else if (VKCode == VK_SPACE) {
+                } else if (VKCode == VK_F4 && altDown) {
+                    running = false;
+                }
+            }
+            break;
+        }
+        default: {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        } break;
+        }
+    }
 }
 
 int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int ShowCode) {
@@ -367,7 +382,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
                 (i16 *)VirtualAlloc(0, soundOutput.secondaryBufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
 #if HANDMADE_INTERNAL
-            LPVOID baseAddress = (LPVOID)Terabytes(2);
+            LPVOID baseAddress = (LPVOID)Terabytes(2LL);
 #else
             LPVOID baseAddress = 0;
 #endif
@@ -391,20 +406,17 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
                 QueryPerformanceCounter(&lastCounter);
 
                 while (running) {
-                    MSG Msg;
-                    while (PeekMessage(&Msg, 0, 0, 0, PM_REMOVE)) {
-                        if (Msg.message == WM_QUIT) {
-                            running = false;
-                        }
-                        TranslateMessage(&Msg);
-                        DispatchMessage(&Msg);
-                    }
+                    GameControllerInput *keyboardController = &newInput->controllers[0];
+                    GameControllerInput zeroController = {};
+                    *keyboardController = zeroController;
+
+                    Win32_processPendingMessages(keyboardController);
 
                     // TODO: Should we poll this more frequently
-                    // TODO: XInputGetState stalls for unconnected gamepads. Only poll pads we know are connected. Use
-                    // HID interrupts to keep track of pads connected.
-                    i32 maxControllerCount = XUSER_MAX_COUNT;
-                    if (maxControllerCount > len(newInput->controllers)) {
+                    // TODO: XInputGetState stalls for unconnected gamepads. Only poll pads we know are connected.
+                    // Use HID interrupts to keep track of pads connected.
+                    DWORD maxControllerCount = XUSER_MAX_COUNT;
+                    if (maxControllerCount > (DWORD)(len(newInput->controllers))) {
                         maxControllerCount = len(newInput->controllers);
                     }
 
@@ -419,10 +431,10 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, 
                             // increments too rapidly
                             XINPUT_GAMEPAD *pad = &ControllerState.Gamepad;
 
-                            bool32 Up = pad->wButtons & XINPUT_GAMEPAD_DPAD_UP;
-                            bool32 Down = pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-                            bool32 Left = pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-                            bool32 Right = pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+                            bool32 up = pad->wButtons & XINPUT_GAMEPAD_DPAD_UP;
+                            bool32 down = pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+                            bool32 left = pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+                            bool32 right = pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
 
                             newController->isAnalog = true;
                             newController->startX = oldController->endX;
