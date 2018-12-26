@@ -39,10 +39,11 @@ template <class T> constexpr T Terabytes(T v) {
     return Gigabytes(v) * 1024;
 }
 
-template <class T> constexpr int len(T *array) {
-    Assert(array != nullptr);
-    return sizeof(array) / sizeof(array[0]);
-}
+#define len(array) (sizeof(array) / sizeof((array)[0]))
+// template <class T> constexpr int len(T array) {
+//     Assert(array != nullptr);
+//     return sizeof(array) / sizeof(array[0]);
+// }
 
 constexpr u32 safeTruncateU64(u64 value) {
     Assert(value <= 0xFFFFFFFF);
@@ -86,37 +87,47 @@ struct GameButtonState {
 };
 
 struct GameControllerInput {
+    bool32 isConnected;
     bool32 isAnalog;
-
-    float startX;
-    float startY;
-
-    float minX;
-    float minY;
-
-    float maxX;
-    float maxY;
-
-    float endX;
-    float endY;
+    float stickAverageX;
+    float stickAverageY;
 
     union {
-        GameButtonState buttons[6];
+        GameButtonState buttons[12];
         struct {
-            GameButtonState up;
-            GameButtonState down;
-            GameButtonState left;
-            GameButtonState right;
+            GameButtonState moveUp;
+            GameButtonState moveDown;
+            GameButtonState moveLeft;
+            GameButtonState moveRight;
+
+            GameButtonState actionUp;
+            GameButtonState actionDown;
+            GameButtonState actionLeft;
+            GameButtonState actionRight;
+
             GameButtonState leftShoulder;
             GameButtonState rightShoulder;
+
+            GameButtonState back;
+            GameButtonState start;
+
+            // NOTE: All buttons must be added above this line
+
+            GameButtonState terminator;
         };
     };
 };
 
 struct GameInput {
     // TODO: Insert clock values here.
-    GameControllerInput controllers[4];
+    GameControllerInput controllers[5];
 };
+
+inline GameControllerInput *getController(GameInput *input, u32 controllerIndex) {
+    Assert(controllerIndex < (u32)len(input->controllers));
+
+    return &input->controllers[controllerIndex];
+}
 
 struct GameMemory {
     bool32 isInitialized;
